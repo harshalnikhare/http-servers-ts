@@ -1,24 +1,26 @@
-import type { NextFunction, Request, Response } from "express";
-import { config } from "../config";
+import type { Request, Response, NextFunction } from "express";
+import { config } from "../config.js";
+import { respondWithError } from "./json.js";
 import {
   BadRequestError,
-  ForbiddenError,
   NotFoundError,
-  UnauthorizedError,
-} from "../utils/error-class";
+  UserForbiddenError,
+  UserNotAuthenticatedError,
+} from "./errors.js";
 
-export async function middlewareLogResponses(
+export function middlewareLogResponse(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   res.on("finish", () => {
-    if (res.statusCode > 299) {
-      console.log(
-        `[NON-OK] ${req.method} ${req.url} - Status: ${res.statusCode}`,
-      );
+    const statusCode = res.statusCode;
+
+    if (statusCode >= 300) {
+      console.log(`[NON-OK] ${req.method} ${req.url} - Status: ${statusCode}`);
     }
   });
+
   next();
 }
 
@@ -27,25 +29,36 @@ export function middlewareMetricsInc(
   __: Response,
   next: NextFunction,
 ) {
-  config.fileserverHits++;
+  config.fileServerHits++;
   next();
 }
 
-export function errorHandler(
+export function errorMiddleWare(
   err: Error,
-  __: Request,
+  _: Request,
   res: Response,
-  ___: NextFunction,
+  __: NextFunction,
 ) {
+  let statusCode = 500;
+  let message = "Something went wrong on our end";
+
   if (err instanceof BadRequestError) {
-    res.status(400).json({ error: err.message });
-  } else if (err instanceof UnauthorizedError) {
-    res.status(401).json({ error: err.message });
-  } else if (err instanceof ForbiddenError) {
-    res.status(403).json({ error: err.message });
+    statusCode = 400;
+    message = err.message;
+  } else if (err instanceof UserNotAuthenticatedError) {
+    statusCode = 401;
+    message = err.message;
+  } else if (err instanceof UserForbiddenError) {
+    statusCode = 403;
+    message = err.message;
   } else if (err instanceof NotFoundError) {
-    res.status(404).json({ error: err.message });
-  } else {
-    res.status(500).send("Internal Server Errors");
+    statusCode = 404;
+    message = err.message;
   }
+
+  if (statusCode >= 500) {
+    console.log(err.message);
+  }
+
+  respondWithError(res, statusCode, message);
 }
